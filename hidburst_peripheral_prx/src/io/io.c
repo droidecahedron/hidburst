@@ -18,8 +18,6 @@ BUILD_ASSERT(DT_SAME_NODE(DT_GPIO_CTLR(DT_ALIAS(led0), gpios),
                               DT_GPIO_CTLR(DT_ALIAS(led3), gpios)),
              "All LEDs must be on the same port");
 
-volatile int peripheral_number = -1; // used to select addr0 and channel in the inits
-
 static struct gpio_callback button_callback;
 
 int leds_init(void)
@@ -53,12 +51,10 @@ void button_pressed(const struct device *dev, struct gpio_callback *cb, uint32_t
     {
     case dk_button1_msk:
         LOG_DBG("BUTTON1");
-        peripheral_number = 0; // first peripheral
         break;
 
     case dk_button2_msk:
         LOG_DBG("BUTTON2");
-        peripheral_number = 1;
         break;
 
     case dk_button3_msk:

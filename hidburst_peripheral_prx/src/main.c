@@ -6,8 +6,13 @@
  */
 #include <zephyr/device.h>
 #include <zephyr/devicetree.h>
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
+#if defined(NRF54L15_XXAA)
+#include <hal/nrf_clock.h>
+#endif /* defined(NRF54L15_XXAA) */
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/irq.h>
 #include <zephyr/logging/log.h>
@@ -104,12 +109,6 @@ static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
 														  0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17);
 
-/* These are arbitrary default addresses. In end user products
- * different addresses should be used for each set of devices.
- */
-#define NUM_PRX_PERIPH 2
-extern volatile int peripheral_number; // used to select addr0 and channel in the inits
-volatile bool esb_running = true;
 
 void event_handler(struct esb_evt const *event)
 {
@@ -142,6 +141,7 @@ void event_handler(struct esb_evt const *event)
 	}
 }
 
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 int clocks_start(void)
 {
 	int err;
@@ -175,18 +175,24 @@ int clocks_start(void)
 		}
 	} while (err);
 
+#if defined(NRF54L15_XXAA)
+	/* MLTPAN-20 */
+	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_PLLSTART);
+#endif /* defined(NRF54L15_XXAA) */
+
 	LOG_DBG("HF clock started");
 	return 0;
 }
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
 
 int esb_initialize(void)
 {
 	int err;
 
-	uint8_t g_base_addr_0[NUM_PRX_PERIPH][4] = {{0xE7, 0xE7, 0xE7, 0xE7}, {0xEE, 0xEE, 0xEE, 0xEE}};
+	uint8_t base_addr_0[4] = {0xE7, 0xE7, 0xE7, 0xE7};
 	uint8_t base_addr_1[4] = {0xC2, 0xC2, 0xC2, 0xC2};
 	uint8_t addr_prefix[8] = {0xE7, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8};
-	uint32_t g_channels[NUM_PRX_PERIPH] = {2, 4}; // channel selection per periph
+	uint32_t rf_ch = 2;
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
 
@@ -204,7 +210,7 @@ int esb_initialize(void)
 		return err;
 	}
 
-	err = esb_set_base_address_0(g_base_addr_0[peripheral_number]);
+	err = esb_set_base_address_0(base_addr_0);
 	if (err)
 	{
 		return err;
@@ -222,7 +228,7 @@ int esb_initialize(void)
 		return err;
 	}
 
-	err = esb_set_rf_channel(g_channels[peripheral_number]);
+	err = esb_set_rf_channel(rf_ch);
 	if (err)
 	{
 		return err;
@@ -237,13 +243,15 @@ int main(void)
 
 	LOG_INF("hidburst_peripheral_prx sample");
 
-	radio_debug_pins_setup();
-
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 	err = clocks_start();
 	if (err)
 	{
 		return 0;
 	}
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
+
+	radio_debug_pins_setup();
 
 	err = leds_init();
 	if (err)
@@ -260,13 +268,6 @@ int main(void)
 	if (err)
 	{
 		return 0;
-	}
-
-	// wait until peripheral number selection
-	while (peripheral_number < 0)
-	{
-		// press button 1 or 2 to set up device and leave
-		k_msleep(100);
 	}
 
 	err = esb_initialize();

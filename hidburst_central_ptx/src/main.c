@@ -4,8 +4,13 @@
  * SPDX-License-Identifier: LicenseRef-Nordic-5-Clause
  * author: johnny nguyen
  */
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 #include <zephyr/drivers/clock_control.h>
 #include <zephyr/drivers/clock_control/nrf_clock_control.h>
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
+#if defined(NRF54L15_XXAA)
+#include <hal/nrf_clock.h>
+#endif /* defined(NRF54L15_XXAA) */
 #include <zephyr/drivers/gpio.h>
 #include <zephyr/irq.h>
 #include <zephyr/logging/log.h>
@@ -122,15 +127,6 @@ static struct esb_payload rx_payload;
 static struct esb_payload tx_payload = ESB_CREATE_PAYLOAD(0,
 														  0x01, 0x00, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08);
 
-/* These are arbitrary default addresses. In end user products
- * different addresses should be used for each set of devices.
- */
-#define NUM_PRX_PERIPH 2
-uint8_t g_base_addr_0[NUM_PRX_PERIPH][4] = {{0xE7, 0xE7, 0xE7, 0xE7}, {0xEE, 0xEE, 0xEE, 0xEE}};
-uint32_t g_channels[NUM_PRX_PERIPH] = {2, 4}; // channel selection per periph
-volatile int g_periph_choice = 0;
-volatile bool swap_device = false;
-
 #define _RADIO_SHORTS_COMMON                                       \
 	(RADIO_SHORTS_READY_START_Msk | RADIO_SHORTS_END_DISABLE_Msk | \
 	 RADIO_SHORTS_ADDRESS_RSSISTART_Msk |                          \
@@ -144,7 +140,6 @@ void event_handler(struct esb_evt const *event)
 	{
 	case ESB_EVENT_TX_SUCCESS:
 		LOG_DBG("TX SUCCESS EVENT");
-		swap_device = true; // TODO:DEBUG:rotate device when we hear back
 		break;
 	case ESB_EVENT_TX_FAILED:
 		LOG_DBG("TX FAILED EVENT");
@@ -165,6 +160,7 @@ void event_handler(struct esb_evt const *event)
 	}
 }
 
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 int clocks_start(void)
 {
 	int err;
@@ -198,16 +194,24 @@ int clocks_start(void)
 		}
 	} while (err);
 
+#if defined(NRF54L15_XXAA)
+	/* MLTPAN-20 */
+	nrf_clock_task_trigger(NRF_CLOCK, NRF_CLOCK_TASK_PLLSTART);
+#endif /* defined(NRF54L15_XXAA) */
+
 	LOG_DBG("HF clock started");
 	return 0;
 }
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
 
-int esb_initialize(int peripheral_choice)
+int esb_initialize(void)
 {
 	int err;
 
+	uint8_t base_addr_0[4] = {0xE7, 0xE7, 0xE7, 0xE7};
 	uint8_t base_addr_1[4] = {0xC2, 0xC2, 0xC2, 0xC2};
 	uint8_t addr_prefix[8] = {0xE7, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8};
+	uint32_t rf_ch = 2;
 
 	struct esb_config config = ESB_DEFAULT_CONFIG;
 
@@ -227,7 +231,7 @@ int esb_initialize(int peripheral_choice)
 		return err;
 	}
 
-	err = esb_set_base_address_0(g_base_addr_0[peripheral_choice]);
+	err = esb_set_base_address_0(base_addr_0);
 	if (err)
 	{
 		return err;
@@ -245,7 +249,7 @@ int esb_initialize(int peripheral_choice)
 		return err;
 	}
 
-	err = esb_set_rf_channel(g_channels[peripheral_choice]);
+	err = esb_set_rf_channel(rf_ch);
 	if (err)
 	{
 		return err;
@@ -393,27 +397,21 @@ static int buttons_init(void)
 	return err;
 }
 
-static void app_esb_rotate_device(int peripheral_choice)
-{
-	// TODO: Why does this rotation require the swap flag in the ESB callback?
-	esb_disable();
-	esb_initialize(peripheral_choice); // gotta do this if using esb_disable
-	esb_start_tx();
-}
-
 int main(void)
 {
 	int err;
 
 	LOG_INF("hidburst_central_ptx sample, press button1 after setting up the PRXs");
 
-	radio_debug_pins_setup();
-
+#if defined(CONFIG_CLOCK_CONTROL_NRF)
 	err = clocks_start();
 	if (err)
 	{
 		return 0;
 	}
+#endif /* defined(CONFIG_CLOCK_CONTROL_NRF) */
+
+	radio_debug_pins_setup();
 
 	err = leds_init();
 	if (err)
@@ -432,7 +430,7 @@ int main(void)
 		// press button 1 to leave
 	}
 
-	err = esb_initialize(g_periph_choice);
+	err = esb_initialize();
 	if (err)
 	{
 		LOG_ERR("ESB initialization failed, err %d", err);
@@ -447,13 +445,6 @@ int main(void)
 	{
 		if (ready)
 		{
-			if (true)
-			{
-				swap_device = false;
-				g_periph_choice = (g_periph_choice + 1) % NUM_PRX_PERIPH;
-				app_esb_rotate_device(g_periph_choice);
-			}
-			ready = false;
 			esb_flush_tx();
 			// leds_update(tx_payload.data[1]);
 
