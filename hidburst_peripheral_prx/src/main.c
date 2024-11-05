@@ -22,6 +22,7 @@
 #include <zephyr/types.h>
 
 #include "io/io.h"
+#include "geo/geo_ip.h"
 
 // radio debugs
 #include <hal/nrf_radio.h>

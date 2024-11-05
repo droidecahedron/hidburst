@@ -10,7 +10,7 @@ project(esb_prx_blefallback)
 
 zephyr_include_directories(.) # hid, io
 
-FILE(GLOB app_sources src/*.c src/io/*.c)
+FILE(GLOB app_sources src/*.c src/io/*.c src/geo/*.c)
 # NORDIC SDK APP START
 target_sources(app PRIVATE ${app_sources})
 # NORDIC SDK APP END
